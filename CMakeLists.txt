@@ -16,6 +16,7 @@ add_executable(design src/main.cpp
         include/UsbUtils.h
         src/UsbUtils.cpp
         src/CollectingDataHuman.cpp
-        include/CollectingDataHuman.h)
+        include/CollectingDataHuman.h
+)
 
 target_link_libraries(design ${CARBON_LIB} ${APP_SERVICES_LIB})

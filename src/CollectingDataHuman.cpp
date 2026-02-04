@@ -21,7 +21,7 @@ static TimePoint t_plug_in;
 static TimePoint t_last_key_down;
 static bool is_first_key = true;
 
-map<CGKeyCode, TimePoint> key_press_starts;
+map<CGKeyCode, TimePoint> key_press_starts_human;
 struct KeyMetrics {
     long long reaction_time;
     long long inter_char_delay;
@@ -69,7 +69,7 @@ CGEventRef eventCallbackHUMAN(CGEventTapProxy proxy, CGEventType type, CGEventRe
 
         t_last_key_down = t_now;
         active_key_metrics[keycode] = {reaction, inter_char};
-        key_press_starts[keycode] = t_now;
+        key_press_starts_human[keycode] = t_now;
 
         if (is_first_key) cout << "REACTION: " << reaction << "ms" << endl;
         else cout << "DELAY: " << inter_char << "ms" << endl;
@@ -77,9 +77,9 @@ CGEventRef eventCallbackHUMAN(CGEventTapProxy proxy, CGEventType type, CGEventRe
 
     else if (type == kCGEventKeyUp) {
         long long hold_time = 0;
-        if (key_press_starts.find(keycode) != key_press_starts.end()) {
-            hold_time = duration_cast<milliseconds>(t_now - key_press_starts[keycode]).count();
-            key_press_starts.erase(keycode);
+        if (key_press_starts_human.find(keycode) != key_press_starts_human.end()) {
+            hold_time = duration_cast<milliseconds>(t_now - key_press_starts_human[keycode]).count();
+            key_press_starts_human.erase(keycode);
         }
 
         long long final_reaction = 0;
