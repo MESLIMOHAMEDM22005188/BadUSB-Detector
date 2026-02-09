@@ -16,7 +16,7 @@ using namespace std::chrono;
 
 constexpr int WINDOW_SIZE = 5;
 constexpr double THRESHOLD = 0.5;
-constexpr int SILENCE_TIMEOUT_SECONDS = 10;
+constexpr int SILENCE_TIMEOUT_SECONDS = 5;
 
 atomic INPUT_BLOCKED{false};
 using Clock = steady_clock;
@@ -57,7 +57,8 @@ void activateLockdown(const string& source) {
         cout << "\n[!!!] THREAT DETECTED BY " << source << " [!!!]\n";
         saveForensics();
         system("diskutil eject /Volumes/* > /dev/null 2>&1");
-        showPopup("Malicious activity detected by " + source + ".");
+        showPopup("Malicious activity detected by " + source + ". The pop-up will be closed after "
+            + to_string(SILENCE_TIMEOUT_SECONDS) + " seconds of no activity.");
     }
 }
 
@@ -163,11 +164,15 @@ void monitorUsbLoop() {
         sleep(1);
 
         if (INPUT_BLOCKED.load()) {
+            // Calculate how long it has been quiet
             auto quiet = duration_cast<seconds>(Clock::now() - t_last_threat_activity).count();
 
+            // Just check if the time has expired (No visible countdown)
             if (quiet > SILENCE_TIMEOUT_SECONDS) {
                 cout << "\n[INFO] Threat neutralized. Resetting...\n";
                 system("killall osascript > /dev/null 2>&1");
+                system("say -v Samantha 'System secured.' &");
+
                 saveForensics();
 
                 window_buffer.clear();
@@ -193,9 +198,18 @@ void monitorUsbLoop() {
 
 int ejectBadUSB() {
     cout << "BadUSB Defense running\n";
-    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp);
 
+    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp) |
+                       CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp) |
+                       CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp) |
+                       CGEventMaskBit(kCGEventMouseMoved) |
+                       CGEventMaskBit(kCGEventLeftMouseDragged) | CGEventMaskBit(kCGEventRightMouseDragged) |
+                       CGEventMaskBit(kCGEventScrollWheel) |
+                       CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp);
+
+    // Using static_cast<CGEventTapOptions>(0) as per your setup
     CFMachPortRef tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, static_cast<CGEventTapOptions>(0), mask, eventCallbackDisconnect, nullptr);
+
     if (!tap) { cerr << "Run with sudo\n"; return 1; }
 
     gTap = tap;
