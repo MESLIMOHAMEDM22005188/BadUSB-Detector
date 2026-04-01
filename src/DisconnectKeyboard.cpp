@@ -20,7 +20,7 @@ using namespace std::chrono;
 
 void runNativeModelEvaluation();
 
-constexpr int WINDOW_SIZE = 5;
+constexpr int WINDOW_SIZE = 15;
 constexpr double THRESHOLD = 0.75;
 constexpr int SILENCE_TIMEOUT_SECONDS = 5;
 
@@ -57,7 +57,7 @@ string getCurrentTimestamp() {
 void showPopup(const string& message) {
     system("killall osascript > /dev/null 2>&1");
     system("say -v Samantha 'Security Alert. Malicious USB Detected.' &");
-    string command = "osascript -e 'display alert \"⚠️ THREAT ISOLATED\" message \"" + message +
+    string command = "osascript -e 'display alert \" THREAT ISOLATED\" message \"" + message +
                      "\" as critical buttons {\"Locked\"} default button \"Locked\"' &";
     system(command.c_str());
 }
@@ -295,6 +295,12 @@ string getApiKey() {
     return key;
 }
 
+void clearOldForensicFiles() {
+    remove("catch_telemetry.csv");
+    remove("badusb_pre_catch.log");
+    remove("badusb_post_catch.log");
+}
+
 void monitorUsbLoop() {
     sleep(2);
     int baseline = getUsbDeviceCount();
@@ -343,6 +349,7 @@ void monitorUsbLoop() {
                 pre_catch_payload.clear();
                 first_key = true;
                 baseline = getUsbDeviceCount();
+                clearOldForensicFiles();
             }
         } else {
             int current = getUsbDeviceCount();
@@ -354,6 +361,7 @@ void monitorUsbLoop() {
         }
     }
 }
+
 
 int ejectBadUSB() {
     // runNativeModelEvaluation();
