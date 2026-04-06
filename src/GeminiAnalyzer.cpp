@@ -95,7 +95,7 @@ void GeminiAnalyzer::generateThreatReport(const string& log_filepath) {
 
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 
-        system("osascript -e 'display dialog \"Analyzing Malicious Payload...\\n\\nPlease wait while the forensic threat report is generated.\" buttons {} with icon note' &");
+        // system("osascript -e 'display dialog \"Analyzing Malicious Payload...\\n\\nPlease wait while the forensic threat report is generated.\" buttons {} with icon note' &");
         std::atomic<bool> is_done(false);
         std::thread loader_thread(showLoadingAnimation, std::ref(is_done));
 

@@ -20,11 +20,12 @@ using namespace std::chrono;
 
 void runNativeModelEvaluation();
 
-constexpr int WINDOW_SIZE = 10;             // dictates the AI analyzes blocks of 15 keys
+constexpr int WINDOW_SIZE = 12;             // dictates the AI analyzes blocks of 15 keys
 constexpr double THRESHOLD = 0.75;          // the XGBoost confidence required to trigger a lockdown
 constexpr int SILENCE_TIMEOUT_SECONDS = 5;  // safety timer
 
 atomic<bool> INPUT_BLOCKED{false};       // when the AI sets this to true, the macOS Event Tap instantly starts swallowing keystrokes.
+atomic<int> ATTACK_SEQUENCE_ID{0};
 using Clock = steady_clock;
 
 static CFMachPortRef gTap = nullptr;        // it holds the active connection to the operating system that intercepts hardware events (keyboard, mouse, etc.) before they reach your apps.
@@ -123,15 +124,16 @@ void activateLockdown(float xgb_prob, double rf_prob, double svm_prob, double nn
     if (!INPUT_BLOCKED.load()) {
         INPUT_BLOCKED.store(true);
 
+        ATTACK_SEQUENCE_ID++;
+        system("pkill -f visualize_live_metrics.py > /dev/null 2>&1 &");
         t_last_threat_activity = Clock::now();
 
         cout << "\n[!!!] XGBoost TRIGGERED LOCKDOWN [!!!]\n";
-
         savePreCatchForensics();
 
-        system("diskutil eject /Volumes/* > /dev/null 2>&1"); // it tells macOS to forcefully and immediately unmount and eject all connected USB storage drives.
+        // Push to background so macOS doesn't freeze waiting for weird USBs to eject!
+        system("diskutil eject /Volumes/* > /dev/null 2>&1 &");
 
-        //
         ofstream q("badusb_post_catch.log", ios::out | ios::app);
         if (q.is_open()) {
             q << "\n[" << getCurrentTimestamp() << "] ===== BLOCKED PAYLOAD =====\n";
@@ -328,65 +330,96 @@ void monitorUsbLoop() {
                 system("say -v Samantha 'System secured.' &");
                 savePreCatchForensics();
 
+                // 1. INSTANTLY UNLOCK THE SYSTEM
                 INPUT_BLOCKED.store(false);
 
-                // 1. Ask to run Gemini
-                if (askUserToViewSecondPopup()) {
-                    cout << "[INFO] Establishing secure C++ connection to Gemini AI...\n";
-
-                    // NEW: AppleScript with Cancel and OK buttons
-                    string script = R"(osascript -e 'button returned of (display alert "C++ AI Bridge" message "Generating Native Threat Intelligence Report...\n\nClick OK to process this in the background." buttons {"Cancel", "OK"} default button "OK")')";
-                    FILE* pipe = popen(script.c_str(), "r");
-
-                    string result = "";
-                    if (pipe) {
-                        char buffer[128];
-                        while (fgets(buffer, 128, pipe) != NULL) result += buffer;
-                        pclose(pipe);
-                    }
-
-                    if (result.find("OK") != string::npos) {
-                        cout << "[INFO] Gemini AI running in the background...\n";
-
-                        // We grab the key BEFORE the thread to ensure thread-safety
-                        string api_key = getApiKey();
-
-                        // NEW: Spawn a detached thread so it doesn't freeze the main program!
-                        thread gemini_thread([api_key]() {
-                            GeminiAnalyzer ai_analyst(api_key);
-                            ai_analyst.generateThreatReport("badusb_post_catch.log");
-                        });
-
-                        // .detach() cuts the thread loose to run completely independently
-                        gemini_thread.detach();
-
-                    } else {
-                        cout << "[INFO] Gemini Analysis cancelled by user.\n";
-                    }
-                } else {
-                    cout << "[INFO] Closing Forensic Logs...\n";
-                }
-
-                if (askUserToViewGraphsPopup()) {
-                    cout << "[INFO] Generating Live Telemetry Graphs...\n";
-
-                    int ret = system("/usr/local/bin/python3.12 src/visualize_live_metrics.py");
-
-                    if (ret == 0) {
-                        cout << "[INFO] Graphs generated successfully! Opening folder...\n";
-                        system("open images/live_attack_metrics");
-                    } else {
-                        cout << "[ERROR] Failed to generate graphs. Check Python path or script.\n";
-                    }
-                }
-                showSecuredPopup();
-
+                // 2. WIPE THE MEMORY IMMEDIATELY
                 window_buffer.clear();
                 key_press_starts.clear();
                 pre_catch_payload.clear();
                 first_key = true;
                 baseline = getUsbDeviceCount();
-                clearOldForensicFiles();
+
+                // 3. CAPTURE THE CURRENT ATTACK ID
+                int current_attack_id = ATTACK_SEQUENCE_ID.load();
+
+                // 4. PUSH ALL UI & REPORTS INTO A DETACHED THREAD
+                thread ui_recovery_thread([current_attack_id]() {
+
+                    // Safety Check 1
+                    if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                    // ==========================================
+                    // PHASE 1: THE GEMINI ANALYSIS
+                    // ==========================================
+                    if (askUserToViewSecondPopup()) {
+
+                        if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                        cout << "[INFO] Establishing secure C++ connection to Gemini AI...\n";
+
+                        // THE LOADING POPUP (ONLY ONE BUTTON: "OK")
+                        // It will pause the code right here until you click it!
+                        string script = R"(osascript -e 'display alert "C++ AI Bridge" message "The Gemini AI analysis is starting. This may take a few seconds..." buttons {"OK"} default button "OK" as informational')";
+                        system(script.c_str());
+
+                        if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                        cout << "[INFO] Gemini AI is generating the report. Please wait...\n";
+                        string api_key = getApiKey();
+
+                        // Runs synchronously. The main code waits until Gemini is done.
+                        GeminiAnalyzer ai_analyst(api_key);
+                        ai_analyst.generateThreatReport("badusb_post_catch.log");
+
+                        cout << "[INFO] Gemini AI report completed!\n";
+
+                    } else {
+                        cout << "[INFO] Gemini Analysis declined by user.\n";
+                    }
+
+                    // ==========================================
+                    // PHASE 2: THE TELEMETRY GRAPHS
+                    // ==========================================
+                    if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                    // This now asks the user ONLY AFTER Gemini has completely finished
+                    if (askUserToViewGraphsPopup()) {
+
+                        if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                        cout << "[INFO] Generating Live Telemetry Graphs...\n";
+                        int ret = system("/usr/local/bin/python3.12 src/visualize_live_metrics.py");
+
+                        if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                        if (ret == 0) {
+                            cout << "[INFO] Graphs generated successfully! Opening folder...\n";
+                            system("open images/live_attack_metrics");
+                        } else {
+                            cout << "[ERROR] Failed to generate graphs. Check Python path or script.\n";
+                        }
+                    } else {
+                        cout << "[INFO] Telemetry Graphs declined by user.\n";
+                    }
+
+                    // ==========================================
+                    // PHASE 3: SECURED CONFIRMATION & CLEANUP
+                    // ==========================================
+                    if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                    // Show the final reassurance popup
+                    showSecuredPopup();
+
+                    // Finally, clear the old files ONLY if we successfully finished without a new attack
+                    if (ATTACK_SEQUENCE_ID.load() == current_attack_id) {
+                        clearOldForensicFiles();
+                    }
+                });
+
+                // Detach the entire recovery process!
+                ui_recovery_thread.detach();
+
             }
         } else {
             int current = getUsbDeviceCount();
@@ -398,7 +431,6 @@ void monitorUsbLoop() {
         }
     }
 }
-
 
 int ejectBadUSB() {
     // runNativeModelEvaluation();
