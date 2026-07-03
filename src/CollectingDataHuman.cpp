@@ -83,30 +83,22 @@ CGEventRef eventCallbackHUMAN(CGEventTapProxy proxy, CGEventType type, CGEventRe
             flight_time = duration_cast<milliseconds>(t_now - t_last_global_up).count();
             dd_time = duration_cast<milliseconds>(t_now - t_last_global_down).count();
         }
-
         t_last_global_down = t_now;
-
         pending_keys[keycode] = {t_now, flight_time, dd_time};
-
         cout << "[DOWN] Flight: " << flight_time << "ms | DD: " << dd_time << "ms" << endl;
     }
 
     else if (type == kCGEventKeyUp) {
         t_last_global_up = t_now;
-
         if (pending_keys.find(keycode) != pending_keys.end()) {
             PendingKeyData data = pending_keys[keycode];
-
             long long hold_time = duration_cast<milliseconds>(t_now - data.start_time).count();
-
             UniChar chars[4];
             UniCharCount len;
             CGEventKeyboardGetUnicodeString(event, 4, &len, chars);
             int charCode = (len > 0) ? static_cast<int>(chars[0]) : 0;
             string safeChar = getSafeChar(charCode);
-
             if (is_first_key) is_first_key = false;
-
             if (csvFile_human.is_open()) {
                 csvFile_human << safeChar << ","
                         << data.flight_time << ","
@@ -115,9 +107,7 @@ CGEventRef eventCallbackHUMAN(CGEventTapProxy proxy, CGEventType type, CGEventRe
                         << LABEL_HUMAN << "\n";
                 csvFile_human.flush();
             }
-
             cout << "Saved: " << safeChar << " (Hold: " << hold_time << "ms)" << endl;
-
             pending_keys.erase(keycode);
         }
     }
@@ -149,10 +139,11 @@ void startDataCollectionHuman() {
     pending_keys.clear();
 
     CGEventMask eventMask = (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp) | (1 << kCGEventFlagsChanged);
-    CFMachPortRef eventTap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, static_cast<CGEventTapOptions>(0), eventMask, eventCallbackHUMAN, NULL);
+    CFMachPortRef eventTap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, static_cast<CGEventTapOptions>(0),
+        eventMask, eventCallbackHUMAN, NULL);
 
     if (!eventTap) {
-        cerr << "[ERROR] Failed to create Event Tap. Run with sudo!\n";
+        cerr << "Failed to create Event Tap. Run with sudo!\n";
         exit(1);
     }
 

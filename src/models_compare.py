@@ -4,7 +4,9 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
+import time
 
+# antreneaza datele din cele doua fisiere de antrenament
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, roc_curve, confusion_matrix
@@ -24,11 +26,20 @@ if not os.path.exists(output_dir):
     print(f"Created directory: {output_dir}")
 
 # 2. LOAD & CLEAN DATA
-badusb_path = os.path.join(SCRIPT_DIR, "../data_old/training_data/badusb_data.csv")
-human_path = os.path.join(SCRIPT_DIR, "../data_old/training_data/human_data.csv")
+# Corectat: data în loc de data_old conform structurii din VS Code
+badusb_path = os.path.join(SCRIPT_DIR, "../data/training_data/badusb_data.csv")
+human_path = os.path.join(SCRIPT_DIR, "../data/training_data/human_data.csv")
 
-badusb = pd.read_csv(badusb_path, on_bad_lines='skip')
-human = pd.read_csv(human_path, on_bad_lines='skip')
+try:
+    badusb = pd.read_csv(badusb_path, on_bad_lines='skip')
+    human = pd.read_csv(human_path, on_bad_lines='skip')
+    print("✓ Datele CSV au fost încărcate cu succes!")
+except FileNotFoundError:
+    print(f"❌ EROARE CRITICĂ: Nu găsesc fișierele de date.")
+    print(f"Caut BadUSB în: {os.path.abspath(badusb_path)}")
+    print(f"Caut Uman în: {os.path.abspath(human_path)}")
+    print("Verifică structura folderelor (asigură-te că folderul se numește 'data' și nu 'data_old').")
+    exit(1)
 
 # Fix data leakage
 badusb = badusb.rename(columns=lambda x: x.replace(';', '').strip())
@@ -69,10 +80,13 @@ results = []
 roc_data = {}
 cm_data = {}
 
-print("Training Models & Generating Predictions... (Neural Net may take a few extra seconds)")
+print("\nAntrenare Modele & Generare Predicții... (Rețeaua Neuronală poate dura câteva secunde)")
 
 for name, model in models.items():
+    # Masuram timpul de antrenament
+    start_time = time.time()
     model.fit(X_train_scaled, y_train)
+    train_time = time.time() - start_time
 
     y_pred = model.predict(X_test_scaled)
     y_prob = model.predict_proba(X_test_scaled)[:, 1]
@@ -86,78 +100,20 @@ for name, model in models.items():
     fpr, tpr, _ = roc_curve(y_test, y_prob)
 
     # Store data for plotting
-    results.append({"Model": name, "Accuracy": acc, "F1-Score": f1, "ROC-AUC": auc})
+    results.append({"Model": name, "Accuracy (%)": round(acc * 100, 2), "F1-Score": round(f1, 4), "ROC-AUC": round(auc, 4)})
     roc_data[name] = {"fpr": fpr, "tpr": tpr, "auc": auc}
     cm_data[name] = confusion_matrix(y_test, y_pred)
 
-    print(f"[{name}] Trained. AUC: {auc:.4f}")
+    print(f"[{name}] Antrenat. Acuratețe: {acc*100:.2f}%")
 
 results_df = pd.DataFrame(results)
 
-# GRAPH 1: Performance Metrics Bar Chart
-
-# print("\nGenerating Metrics Comparison Graph...")
-# results_melted = results_df.melt(id_vars="Model", var_name="Metric", value_name="Score")
-#
-# plt.figure(figsize=(14, 6))  # Made slightly wider to fit 5 names comfortably
-# sns.barplot(data=results_melted, x="Model", y="Score", hue="Metric", palette="viridis")
-# plt.title("Machine Learning vs Deep Learning: BadUSB Detection", fontsize=16)
-# plt.ylim(0.5, 1.05)
-# plt.ylabel("Score (0 to 1)")
-# plt.legend(loc='lower right')
-# plt.grid(axis='y', linestyle='--', alpha=0.7)
-# plt.tight_layout()
-# plt.savefig(os.path.join(output_dir, "1_metrics_comparison.png"))
-# plt.close()
-
-# GRAPH 2: Combined ROC Curves
-
-# print("Generating Combined ROC Curves...")
-# plt.figure(figsize=(10, 8))
-#
-# colors = ['blue', 'green', 'orange', 'purple', 'red']
-# for (name, data), color in zip(roc_data.items(), colors):
-#     plt.plot(data['fpr'], data['tpr'], label=f"{name} (AUC = {data['auc']:.3f})", color=color, linewidth=2)
-#
-# plt.plot([0, 1], [0, 1], 'k--', label='Random Guessing (AUC = 0.500)')
-#
-# plt.title('Receiver Operating Characteristic (ROC) Curves', fontsize=16)
-# plt.xlabel('False Positive Rate (Incorrectly flagging a Human)')
-# plt.ylabel('True Positive Rate (Catching the BadUSB)')
-# plt.legend(loc='lower right', fontsize=12)
-# plt.grid(alpha=0.3)
-# plt.tight_layout()
-# plt.savefig(os.path.join(output_dir, "2_roc_curves.png"))
-# plt.close()
-
-# GRAPH 3: Confusion Matrix Grid
-
-# print("Generating Confusion Matrix Grid...")
-# fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-# fig.suptitle('Confusion Matrices by Model', fontsize=20)
-# axes = axes.flatten()
-#
-# for i, (name, cm) in enumerate(cm_data.items()):
-#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[i],
-#                 xticklabels=['Human', 'BadUSB'], yticklabels=['Human', 'BadUSB'],
-#                 cbar=False, annot_kws={"size": 14})
-#     axes[i].set_title(name, fontsize=14)
-#     axes[i].set_ylabel('Actual Identity')
-#     axes[i].set_xlabel('Predicted Identity')
-#
-# # Hide the empty 6th subplot if plotting 5 models on a 2x3 grid
-# if len(cm_data) < len(axes):
-#     axes[-1].set_visible(False)
-#
-# plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-# plt.savefig(os.path.join(output_dir, "3_confusion_matrices.png"))
-# plt.close()
-#
-# print(f"\nSuccess! All ML comparison graphs saved to: {output_dir}/")
-
 # Print Leaderboard to Terminal
-print("\n--- FINAL ML LEADERBOARD ---")
-print(results_df.sort_values(by="ROC-AUC", ascending=False).to_string(index=False))
+print("\n" + "="*40)
+print("🏆 FINAL ML LEADERBOARD 🏆")
+print("="*40)
+print(results_df.sort_values(by="Accuracy (%)", ascending=False).to_string(index=False))
+print("="*40 + "\n")
 
 # =========================================================
 # PART 6: EXPORT FINAL MODEL FOR C++ INFERENCE
@@ -165,27 +121,28 @@ print(results_df.sort_values(by="ROC-AUC", ascending=False).to_string(index=Fals
 # We retrain the winning XGBoost model on the ENTIRE dataset
 # (train + test) to give it maximum knowledge before export.
 
-print("\nRetraining Champion Model (XGBoost) on full dataset for export...")
+print("Re-antrenare Model (XGBoost) pe întregul set de date pentru export...")
 final_model = XGBClassifier(eval_metric='logloss', random_state=42)
 
-# Notice we use the unscaled X here, because the C++ agent won't have the scaler!
+# Pentru XGBoost nu e obligatorie scalarea, dar daca antrenezi pe X, vei face predictii in C++ direct pe valorile brute
 final_model.fit(X, y)
 
 export_path = os.path.join(SCRIPT_DIR, "badusb_xgboost.json")
 final_model.save_model(export_path)
-print(f"Export Complete! C++ ready model saved to: {export_path}")
-print("\n[SYSTEM] Exporting models for future use...")
 
-# Create a dedicated folder for the exported models
-models_dir = 'shadow_models'
+print(f"✓ Export Complet! Modelul gata pentru C++ a fost salvat în: {export_path}")
+print("\n[SYSTEM] Export modele shadow pentru viitor...")
+
+# Create a dedicated folder for the exported models (relativ la SCRIPT_DIR)
+models_dir = os.path.join(SCRIPT_DIR, 'shadow_models')
 if not os.path.exists(models_dir):
     os.makedirs(models_dir)
-    print(f"[INFO] Created new directory: {models_dir}/")
+    print(f"[INFO] Am creat directorul: {models_dir}/")
 
 # 1. Save the Scaler (This is CRITICAL for the Neural Network and SVM)
 scaler_path = os.path.join(models_dir, 'shadow_scaler.pkl')
 joblib.dump(scaler, scaler_path)
-print(" -> Saved: shadow_scaler.pkl")
+print(" -> Salvat: shadow_scaler.pkl")
 
 # 2. Save each model individually
 for name, model in models.items():
@@ -195,6 +152,6 @@ for name, model in models.items():
     file_path = os.path.join(models_dir, filename)
 
     joblib.dump(model, file_path)
-    print(f" -> Saved: {filename}")
+    print(f" -> Salvat: {filename}")
 
-print(f"[SUCCESS] All models are now exported as .pkl files inside the '{models_dir}' folder.")
+print(f"\n[SUCCES] Toate modelele au fost exportate ca fișiere .pkl în folderul '{models_dir}'.")

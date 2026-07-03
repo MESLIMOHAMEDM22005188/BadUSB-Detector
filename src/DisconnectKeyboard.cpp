@@ -19,11 +19,9 @@ using namespace std;
 using namespace std::chrono;
 
 void runNativeModelEvaluation();
-
-constexpr int WINDOW_SIZE = 12;             // dictates the AI analyzes blocks of 15 keys
+constexpr int WINDOW_SIZE = 15;             // dictates the AI analyzes blocks of 15 keys
 constexpr double THRESHOLD = 0.75;          // the XGBoost confidence required to trigger a lockdown
-constexpr int SILENCE_TIMEOUT_SECONDS = 5;  // safety timer
-
+constexpr int SILENCE_TIMEOUT_SECONDS = 10;  // safety timer
 atomic<bool> INPUT_BLOCKED{false};       // when the AI sets this to true, the macOS Event Tap instantly starts swallowing keystrokes.
 atomic<int> ATTACK_SEQUENCE_ID{0};
 using Clock = steady_clock;
@@ -56,7 +54,7 @@ string getCurrentTimestamp() {
 }
 
 void showPopup(const string& message) {
-    system("killall osascript > /dev/null 2>&1");
+    system("killall osascript > /dev/null 2>&1"); // Închide cu forța orice alt pop-up macOS deschis anterior, trimițând eventualele erori în neant (> /dev/null).
     system("say -v Samantha 'Security Alert. Malicious USB Detected.' &");
     string command = "osascript -e 'display alert \" THREAT ISOLATED\" message \"" + message +
                      "\" as critical buttons {\"Locked\"} default button \"Locked\"' &";
@@ -115,6 +113,9 @@ void savePreCatchForensics() { // it records the keys before the BadUSB is being
     pre_catch_payload.clear();
 }
 
+// Modele precum Support Vector Machine (SVM) sau Regresia Logistică nu scot la ieșire „90% malițios”,
+// ci un număr real (ex: 2.5 sau -1.2). Această funcție transformă acel număr într-o probabilitate ușor de înțeles de către om,
+// între 0.0 și 1.0 (adică 0% - 100%).
 double marginToProbability(double margin) {
     return 1.0 / (1.0 + exp(-margin));
 }
@@ -132,6 +133,8 @@ void activateLockdown(float xgb_prob, double rf_prob, double svm_prob, double nn
         savePreCatchForensics();
 
         // Push to background so macOS doesn't freeze waiting for weird USBs to eject!
+        // Demontează/ejectează forțat și instantaneu toate memoriile USB conectate la Mac
+        // Rularea se face în fundal (&) pentru a nu îngheța programul C++ cât timp macOS se chinuie să demonteze partițiile
         system("diskutil eject /Volumes/* > /dev/null 2>&1 &");
 
         ofstream q("badusb_post_catch.log", ios::out | ios::app);
@@ -154,6 +157,7 @@ void activateLockdown(float xgb_prob, double rf_prob, double svm_prob, double nn
     }
 }
 
+// se creeaza probabilitatile
 void process_window() {
     if (window_buffer.size() < WINDOW_SIZE) return; // it checks if the window_buffer has collected enough keystrokes (15 keys)
 
@@ -161,6 +165,7 @@ void process_window() {
     double last_rf_prob = 0, last_svm_prob = 0, last_nn_prob = 0, last_log_prob = 0;
     float last_xgb_prob = 0;
 
+    // Intră într-o buclă care ia pe rând fiecare dintre cele 8 taste din buffer (k)
     for (const auto& k : window_buffer) {
         last_xgb_prob = ai_agent->predict(k.flight, k.inter, k.hold);
 
@@ -174,6 +179,9 @@ void process_window() {
         last_svm_prob = marginToProbability(predict_svm(scaled_features));
 
         // Random Forest outputs an array. We calculate the percentage of trees that voted "Malicious"
+        // Un algoritm Random Forest este compus din zeci/sute de "arbori de decizie" independenți.
+        // Funcția ta se uită câți arbori au votat că tasta e "Umană" (rf_output[0]) și câți au votat "BadUSB"
+        // (rf_output[1]). Probabilitatea finală este procentul de arbori care au votat pentru atac.
         double rf_output[2];
         predict_random_forest(scaled_features, rf_output);
         double total_trees = rf_output[0] + rf_output[1];
@@ -195,11 +203,12 @@ void process_window() {
     }
 
     //if XGBoost flagged at least 4 of the 15 keystrokes as definitively malicious, the AI drops the hammer.
-    if (malicious_keystroke_count >= 4) {
+    if (malicious_keystroke_count >= 3) {
         // Pass the precise math to the visual UI!
         activateLockdown(last_xgb_prob, last_rf_prob, last_svm_prob, last_nn_prob, last_log_prob);
         window_buffer.clear();
     } else {
+        // Dacă nu s-a detectat niciun atac, nu golim toată fereastra. Ștergem doar cea mai veche tastă din buffer (erase(begin())).
         window_buffer.erase(window_buffer.begin());
     }
 }
@@ -226,7 +235,6 @@ CGEventRef eventCallbackDisconnect(CGEventTapProxy proxy, CGEventType type, CGEv
         t_last_threat_activity = now;
     }
 
-    // saves the keys into badusb_post_catch.log (AFTER the lockdown)
     if (type == kCGEventKeyDown) {
         UniChar chars[4]; UniCharCount len;
         CGEventKeyboardGetUnicodeString(event, 4, &len, chars);
@@ -239,7 +247,7 @@ CGEventRef eventCallbackDisconnect(CGEventTapProxy proxy, CGEventType type, CGEv
                     if (c == 13 || c == 3) q << "\n";
                     else if (c >= 32 && c <= 126) q << c;
                 }
-            } else {
+            } else { // salvare in pre_catch_payload
                 if (c == 13 || c == 3) pre_catch_payload += '\n';
                 else if (c >= 32 && c <= 126) pre_catch_payload += c;
             }
@@ -252,6 +260,7 @@ CGEventRef eventCallbackDisconnect(CGEventTapProxy proxy, CGEventType type, CGEv
         float hold = 0, flight = 0, inter = 0;
 
         if (key_press_starts.count(keycode)) {
+            // Când tasta se ridică, funcția scade din momentul curent (now) momentul apăsării (stocat anterior). Apoi, curăță tasta din dicționar.
             hold = duration_cast<milliseconds>(now - key_press_starts[keycode]).count();
             key_press_starts.erase(keycode);
         }
@@ -259,8 +268,11 @@ CGEventRef eventCallbackDisconnect(CGEventTapProxy proxy, CGEventType type, CGEv
         if (!first_key) {
             inter = duration_cast<milliseconds>(now - last_key_release_time).count();
             flight = inter - hold;
+            // Dacă nu suntem la prima tastă tastată, se calculează Inter-key Time (distanța de la ridicarea tastei anterioare)
+            // și Flight Time (timpul de zbor între taste)
 
             if (flight > 2000) {
+                //Dacă o persoană face o pauză mai mare de 2 secunde între taste (2000 milisecunde), sistemul curăță buffer-ul glisant.
                 if (!is_blocked) {
                     window_buffer.clear();
                     pre_catch_payload.clear();
@@ -343,18 +355,36 @@ void monitorUsbLoop() {
 
                     if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
                     if (askUserToViewSecondPopup()) {
-
                         if (ATTACK_SEQUENCE_ID.load() != current_attack_id) return;
+
+                        cout << "[INFO] Consolidating forensic data for Gemini AI analysis...\n";
+
+                        string combinedFile = "full_threat_analysis.log";
+                        ofstream outfile(combinedFile);
+
+                        ifstream pre("badusb_pre_catch.log");
+                        if (pre.is_open()) {
+                            outfile << "--- SECVENȚA DE PRE-DETECȚIE (TRIGGER) ---\n";
+                            outfile << pre.rdbuf() << "\n\n";
+                            pre.close();
+                        }
+
+                        ifstream post("badusb_post_catch.log");
+                        if (post.is_open()) {
+                            outfile << "--- SECVENȚA DE POST-DETECȚIE (INPUTUL ATACATORULUI ÎN BLOCARE) ---\n";
+                            outfile << post.rdbuf() << "\n";
+                            post.close();
+                        }
+                        outfile.close();
+
                         cout << "[INFO] Establishing secure C++ connection to Gemini AI...\n";
-                        cout << "[INFO] Gemini AI is generating the report. Please wait...\n";
-
                         string api_key = getApiKey();
-
                         GeminiAnalyzer ai_analyst(api_key);
-                        ai_analyst.generateThreatReport("badusb_post_catch.log");
+
+                        ai_analyst.generateThreatReport(combinedFile);
+                        remove(combinedFile.c_str());
 
                         cout << "[INFO] Gemini AI report completed!\n";
-
                     } else {
                         cout << "[INFO] Gemini Analysis declined by user.\n";
                     }
@@ -387,6 +417,9 @@ void monitorUsbLoop() {
 
             }
         } else {
+            // Aceasta este ramura else a condiției if (INPUT_BLOCKED.load()). Dacă sistemul NU este sub atac (merge normal),
+            // bucla pur și simplu numără câte dispozitive USB sunt în calculator. Dacă bagi sau scoți un stick USB normal,
+            // actualizează baseline-ul (noul normal), pregătindu-se pentru momentul în care AI-ul va declanșa o alarmă.
             int current = getUsbDeviceCount();
             if (current > baseline) {
                 baseline = current;
@@ -408,6 +441,9 @@ int ejectBadUSB() {
 
     CGEventMask mask = kCGEventMaskForAllEvents;
 
+    // kCGHeadInsertEventTap (Foarte important): Acest parametru spune sistemului de operare să pună sonda ta în capul listei de interceptori.
+    // eventCallbackDisconnect: Este "adresa" funcției tale. Îi spune sistemului: "Ori de câte ori apare o tastă, trimite-o mai întâi la această funcție a mea".
+    // kCGSessionEventTap: Indică faptul că monitorizezi evenimentele la nivelul sesiunii grafice a utilizatorului curent.
     CFMachPortRef tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, static_cast<CGEventTapOptions>(0), mask, eventCallbackDisconnect, nullptr);
 
     if (!tap) { cerr << "FATAL: Must run with sudo!\n"; return 1; }

@@ -8,6 +8,8 @@ import plotly.express as px
 import webbrowser
 from datetime import datetime
 
+# genereaza grafice din setul de date din training_data (it acts independently)
+
 print("==================================================")
 print("   GENERATING LIVE ATTACK TELEMETRY GRAPHS        ")
 print("==================================================")

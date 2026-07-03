@@ -4,6 +4,8 @@ import os
 import sys
 import numpy as np
 
+# se exporta din .pkl in ShadowModels.h
+
 # Tell Python to allow massive mathematical equations (for SVM)
 sys.setrecursionlimit(10000)
 
@@ -26,6 +28,9 @@ scaler = joblib.load(scaler_path)
 means = scaler.mean_
 scales = scaler.scale_
 
+#z=
+# σ
+# x−μ
 # Start writing the unified C++ Header File
 cpp_code = f"""// ==========================================
 // AUTO-GENERATED AI MODELS FOR C++ EDR
@@ -64,6 +69,7 @@ for name, filename in models_to_export.items():
                                         f"inline void predict_{name}(double* input, double* output)")
 
         raw_c_code = raw_c_code.replace("void mul_vector_number(", "inline void mul_vector_number(")
+        raw_c_code = raw_c_code.replace("void mul_vector_number(", "inline void mul_vector_number(")
         raw_c_code = raw_c_code.replace("void add_vectors(", "inline void add_vectors(")
         raw_c_code = raw_c_code.replace("void assign_vector(", "inline void assign_vector(")
         raw_c_code = raw_c_code.replace("double dot_product(", "inline double dot_product(")
@@ -99,7 +105,6 @@ if os.path.exists(nn_path):
     cpp_code += "// CUSTOM BARE-METAL NEURAL NETWORK\n"
     cpp_code += "// ==========================================\n\n"
 
-    # Hide the weights in a namespace to keep the C++ global scope clean
     cpp_code += "namespace NN_Weights {\n"
     cpp_code += to_cpp_array_2d(w1, "W1")
     cpp_code += to_cpp_array_1d(b1, "B1")

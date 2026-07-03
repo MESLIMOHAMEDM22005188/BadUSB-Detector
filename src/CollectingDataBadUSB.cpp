@@ -18,7 +18,7 @@ static TimePoint t_last_key_up;
 static bool is_first_key = true;
 
 void setConnectionTime() {
-    t_last_key_down = TimePoint();
+    t_last_key_down = TimePoint(); // seteaza timpii pe zero
     t_last_key_up = TimePoint();
     is_first_key = true;
 
