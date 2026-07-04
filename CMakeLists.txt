@@ -19,17 +19,14 @@ find_library(APP_SERVICES_LIB ApplicationServices)
 find_package(CURL REQUIRED)
 
 add_executable(design src/main.cpp
-        include/CollectingDataBadUSB.h
-        src/CollectingDataBadUSB.cpp
+        include/KeystrokeCollector.h
+        src/KeystrokeCollector.cpp
         src/DisconnectKeyboard.cpp
         include/DisconnectKeyboard.h
         include/UsbUtils.h
         src/UsbUtils.cpp
-        src/CollectingDataHuman.cpp
         include/BadUSBDetector.h
         src/BadUSBDetector.cpp
-        include/GeminiAnalyzer.h
-        src/GeminiAnalyzer.cpp
         include/GeminiAnalyzer.h
         src/GeminiAnalyzer.cpp
         src/shadow_evaluator.cpp
